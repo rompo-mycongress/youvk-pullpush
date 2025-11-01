@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "youvk-pullpush"
+version = "0.1.0"
+description = "Инструмент для переноса видео с YouTube в VK"
+authors = [{name = "Твоё имя", email = "rrompo@gmail.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "flet",
+    "yt-dlp",
+    "vk-api",
+    "python-dotenv"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["*"]
