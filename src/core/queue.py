@@ -78,11 +78,18 @@ class DownloadQueue:
                             # Получаем URL видео
                             video_url = entry.get('webpage_url') or entry.get('url') or entry.get('id')
                             if video_url:
+                                # Пропускаем ссылки на поддержку Google/YouTube
+                                if 'support.google.com' in video_url or 'help.youtube.com' in video_url:
+                                    continue
+                                
                                 # Если это ID, конвертируем в полный URL
                                 if not video_url.startswith('http'):
                                     video_url = f"https://www.youtube.com/watch?v={video_url}"
-                                self.add_url(video_url, privacy=privacy)
-                                added_count += 1
+                                
+                                # Проверяем, что это действительно YouTube видео
+                                if 'youtube.com' in video_url or 'youtu.be' in video_url:
+                                    self.add_url(video_url, privacy=privacy)
+                                    added_count += 1
                     return added_count
         except Exception as e:
             raise Exception(f"Ошибка парсинга канала/плейлиста: {str(e)}")

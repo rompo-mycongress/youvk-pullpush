@@ -13,15 +13,25 @@ def get_ffmpeg_path():
         # Запущено как обычный Python-скрипт
         base_path = os.path.dirname(__file__)
     ffmpeg_exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
-    return os.path.join(base_path, "..", "bin", ffmpeg_exe)
+    ffmpeg_path = os.path.join(base_path, "..", "bin", ffmpeg_exe)
+    # Нормализуем путь и преобразуем в абсолютный
+    ffmpeg_path = os.path.abspath(os.path.normpath(ffmpeg_path))
+    return ffmpeg_path
 
 class YouTubeDownloader:
     def __init__(self, output_dir: str = None, progress_hook=None):
         """
-        :param output_dir: Каталог для сохранения видео. Если None — используется временная папка.
+        :param output_dir: Каталог для сохранения видео. Если None — используется отдельная папка во временной директории.
         :param progress_hook: Функция для отслеживания прогресса (url, status, progress)
         """
-        self.output_dir = output_dir or tempfile.gettempdir()
+        if output_dir:
+            self.output_dir = output_dir
+        else:
+            # Создаем отдельную папку для программы во временной директории
+            temp_dir = tempfile.gettempdir()
+            app_temp_dir = os.path.join(temp_dir, "youvk-pullpush")
+            os.makedirs(app_temp_dir, exist_ok=True)
+            self.output_dir = app_temp_dir
         self.progress_hook = progress_hook
         self.current_url = None
 
@@ -44,8 +54,17 @@ class YouTubeDownloader:
         ydl_opts = {
             'quiet': True,
             'noplaylist': True,
-            'ffmpeg_location': ffmpeg_path,
         }
+        # Добавляем путь к ffmpeg только если он найден
+        if ffmpeg_path and os.path.isfile(ffmpeg_path):
+            # yt-dlp может требовать путь к директории, попробуем оба варианта
+            ydl_opts['ffmpeg_location'] = os.path.dirname(ffmpeg_path)
+        else:
+            # Попробуем найти в PATH
+            import shutil
+            ffmpeg_in_path = shutil.which("ffmpeg")
+            if ffmpeg_in_path:
+                ydl_opts['ffmpeg_location'] = os.path.dirname(ffmpeg_in_path)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             return {
@@ -67,20 +86,33 @@ class YouTubeDownloader:
 
         ffmpeg_path = get_ffmpeg_path()
         if not os.path.isfile(ffmpeg_path):
-            raise FileNotFoundError(
-                f"ffmpeg не найден по пути: {ffmpeg_path}\n"
-                "Поместите ffmpeg.exe в папку src/bin/"
-            )
+            # Попробуем найти ffmpeg в PATH
+            import shutil
+            ffmpeg_in_path = shutil.which("ffmpeg")
+            if ffmpeg_in_path:
+                ffmpeg_path = ffmpeg_in_path
+            else:
+                # Если не найден, продолжаем без ffmpeg - yt-dlp попробует найти его сам
+                ffmpeg_path = None
+                print(f"Предупреждение: ffmpeg не найден по пути {get_ffmpeg_path()}, используем системный поиск")
 
         ydl_opts = {
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
             'outtmpl': output_template,
-            'quiet': False,
+            'quiet': True,  # Подавляем большинство сообщений
             'noplaylist': True,
-            'no_warnings': False,
-            'ffmpeg_location': ffmpeg_path,
+            'no_warnings': True,  # Подавляем предупреждения
+            'noprogress': False,  # Показываем прогресс через наш хук
         }
+        
+        # Добавляем путь к ffmpeg только если он найден
+        if ffmpeg_path and os.path.isfile(ffmpeg_path):
+            # yt-dlp может требовать путь к директории, попробуем оба варианта
+            ydl_opts['ffmpeg_location'] = os.path.dirname(ffmpeg_path)
+        elif ffmpeg_path:
+            # Если это путь к директории, а не файлу
+            ydl_opts['ffmpeg_location'] = ffmpeg_path if os.path.isdir(ffmpeg_path) else os.path.dirname(ffmpeg_path)
 
         if self.progress_hook:
             ydl_opts['progress_hooks'] = [self._progress_hook]
