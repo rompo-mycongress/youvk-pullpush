@@ -34,9 +34,31 @@ VK_ACCESS_TOKEN=your_token_here
 
 ## Запуск
 
+### Из исходников:
 ```bash
 python src/gui/app.py
 ```
+
+### Из собранного EXE:
+Скачайте готовый `youvk-pullpush.exe` из раздела [Releases](https://github.com/rompo-mycongress/youvk-pullpush/releases) или соберите самостоятельно (см. раздел "Сборка EXE").
+
+## Сборка EXE
+
+Для сборки исполняемого файла используется PyInstaller:
+
+1. Установите PyInstaller:
+```bash
+pip install pyinstaller
+```
+
+2. Соберите EXE:
+```bash
+pyinstaller youvk-pullpush.spec --clean
+```
+
+Готовый файл будет в папке `dist/youvk-pullpush.exe`.
+
+**Примечание:** В собранный exe включен `ffmpeg.exe` для обработки видео. При первом запуске программа создаст папку для временных файлов в системной временной директории.
 
 ## Лицензия
 
