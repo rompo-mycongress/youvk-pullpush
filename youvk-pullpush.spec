@@ -5,13 +5,21 @@ block_cipher = None
 
 a = Analysis(
     ['src/gui/app.py'],
-    pathex=[],
+    pathex=['src'],  # Добавляем src в путь поиска модулей
     binaries=[],
     datas=[],
     hiddenimports=[
         'tkinter',
         'tkinter.ttk',
         'tkinter.messagebox',
+        'dotenv',
+        'vk_api',
+        'yt_dlp',
+        'requests',
+        'core.queue',
+        'core.vk',
+        'core.youtube',
+        'gui.app_tkinter',
     ],
     hookspath=[],
     hooksconfig={},
