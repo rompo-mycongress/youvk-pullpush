@@ -243,15 +243,12 @@ class YouVkAppTkinter:
                                   command=self._stop_processing, state=tk.DISABLED)
         self.stop_btn.pack(side=tk.LEFT, padx=5)
         
-        # Информация с возможностью копирования
+        # Информация
         info_frame = ttk.Frame(parent)
         info_frame.pack(pady=5)
         info_label = ttk.Label(info_frame, text="ℹ️ Используйте задержку при ошибках или лимитах VK", 
                               foreground=self.text_secondary, font=('Arial', 9))
         info_label.pack(side=tk.LEFT)
-        info_copy_btn = ttk.Button(info_frame, text="📋", width=3, 
-                                  command=lambda: self._copy_to_clipboard("Используйте задержку при ошибках или лимитах VK"))
-        info_copy_btn.pack(side=tk.LEFT, padx=5)
         
         separator = ttk.Separator(parent, orient='horizontal')
         separator.pack(fill=tk.X, padx=20, pady=10)
@@ -443,9 +440,19 @@ class YouVkAppTkinter:
                     progress_value = item.get("progress", 0)
                     progress_text = f"{progress_value:.0f}%" if progress_value else "0%"
                 elif status.startswith("📤") or "Загрузка" in status:
+                    # Для загрузки показываем статус с прогрессом
                     status_text = status[:40] if len(status) <= 40 else status[:37] + "..."
                     progress_value = item.get("progress", 0)
-                    progress_text = f"{progress_value:.1f}%" if progress_value else "0%"
+                    # Если прогресс в статусе не сохранен, пытаемся извлечь из текста статуса
+                    if progress_value == 0 and "%" in status:
+                        try:
+                            import re
+                            match = re.search(r'(\d+\.?\d*)%', status)
+                            if match:
+                                progress_value = float(match.group(1))
+                        except:
+                            pass
+                    progress_text = f"{progress_value:.1f}%" if progress_value > 0 else "0%"
                 elif "🔄" in status or "Конвертация" in status:
                     status_text = status[:40]
                     progress_value = item.get("progress", 95)
@@ -845,18 +852,21 @@ class YouVkAppTkinter:
         
         def progress_hook(url, status, progress=None):
             """Хук для обновления прогресса"""
-            if progress is not None:
-                self.dq.update_status(url, status, progress=progress)
-            else:
-                if "%" in status:
-                    try:
-                        progress = float(status.split("%")[0].split()[-1])
-                        self.dq.update_status(url, status, progress=progress)
-                    except:
-                        self.dq.update_status(url, status)
-                else:
-                    self.dq.update_status(url, status)
+            # Извлекаем прогресс из статуса, если он не передан явно
+            if progress is None and "%" in status:
+                try:
+                    # Пытаемся извлечь число перед символом %
+                    import re
+                    match = re.search(r'(\d+\.?\d*)%', status)
+                    if match:
+                        progress = float(match.group(1))
+                except:
+                    pass
             
+            # Обновляем статус в очереди
+            self.dq.update_status(url, status, progress=progress)
+            
+            # Обновляем UI в главном потоке
             self.root.after(0, self._refresh_queue_ui)
         
         def upload_thread():
@@ -872,19 +882,23 @@ class YouVkAppTkinter:
                     
                     if not filepath or not os.path.exists(filepath):
                         self.dq.update_status(url, "error: Файл не найден")
-                        progress_hook(url, "❌ Ошибка: Файл не найден", None)
+                        self.root.after(0, self._refresh_queue_ui)
                         continue
                     
                     try:
-                        self.dq.update_status(url, "📤 Загрузка в VK...", progress=0)
-                        progress_hook(url, "📤 Загрузка в VK...", 0)
+                        # Начинаем загрузку - устанавливаем начальный статус
+                        self.dq.update_status(url, "📤 Загрузка в VK: 0%", progress=0)
+                        self.root.after(0, self._refresh_queue_ui)
                         
                         print(f"[VK Upload] Начинаем загрузку видео: {item.get('final_title', 'Без названия')}")
                         
                         # Функция для отслеживания прогресса загрузки
                         def upload_progress(bytes_uploaded, total_bytes, progress_percent):
-                            self.dq.update_status(url, f"📤 Загрузка в VK...", progress=progress_percent)
-                            progress_hook(url, f"📤 Загрузка в VK: {progress_percent:.1f}%", progress_percent)
+                            # Обновляем статус и прогресс через единый механизм
+                            status_text = f"📤 Загрузка в VK: {progress_percent:.1f}%"
+                            self.dq.update_status(url, status_text, progress=progress_percent)
+                            # Обновляем UI в главном потоке
+                            self.root.after(0, self._refresh_queue_ui)
                         
                         result = uploader.upload_video(
                             filepath=filepath,
@@ -898,7 +912,8 @@ class YouVkAppTkinter:
                         
                         # Сохраняем результат с правильным статусом
                         self.dq.update_status(url, "done", result_link=result["link"], progress=100)
-                        progress_hook(url, f"✅ Готово: {result['link']}", 100)
+                        # Обновляем UI
+                        self.root.after(0, self._refresh_queue_ui)
                         
                         # Сохраняем owner_id и video_id для возможности переименования
                         item["owner_id"] = result.get("owner_id")
@@ -916,19 +931,34 @@ class YouVkAppTkinter:
                         error_msg = str(e)
                         print(f"[VK Upload] Ошибка при загрузке видео: {error_msg}")
                         self.dq.update_status(url, f"error: {error_msg}")
-                        progress_hook(url, f"❌ Ошибка: {error_msg}", None)
+                        self.root.after(0, self._refresh_queue_ui)
                     
+                    # Пауза только между видео (не после последнего и не после ошибок)
                     if self.stop_processing_flag:
                         break
                     
-                    if self.dq.delay > 0:
-                        # Пауза с счетчиком обратного отсчета
-                        for remaining in range(self.dq.delay, 0, -1):
-                            if self.stop_processing_flag:
+                    # Проверяем, есть ли следующее видео в списке
+                    current_index = downloaded_items.index(item)
+                    is_last = current_index == len(downloaded_items) - 1
+                    
+                    # Применяем паузу только если есть следующее видео и загрузка была успешной
+                    if not is_last and self.dq.delay > 0:
+                        # Проверяем, что загрузка была успешной (status == "done")
+                        item_status = None
+                        for queue_item in self.dq.items:
+                            if queue_item["url"] == url:
+                                item_status = queue_item.get("status")
                                 break
-                            progress_hook(url, f"⏳ Пауза {self.dq.delay} сек... (осталось {remaining} сек)", None)
-                            import time
-                            time.sleep(1)
+                        
+                        if item_status == "done":
+                            # Пауза с счетчиком обратного отсчета
+                            for remaining in range(self.dq.delay, 0, -1):
+                                if self.stop_processing_flag:
+                                    break
+                                self.dq.update_status(url, f"⏳ Пауза {self.dq.delay} сек... (осталось {remaining} сек)")
+                                self.root.after(0, self._refresh_queue_ui)
+                                import time
+                                time.sleep(1)
             finally:
                 self.is_processing = False
                 self.stop_processing_flag = False
@@ -1030,24 +1060,22 @@ class YouVkAppTkinter:
         
         def progress_hook(url, status, progress=None):
             """Хук для обновления прогресса"""
-            if progress is not None:
-                self.dq.update_status(url, status, progress=progress)
-            else:
-                # Извлекаем прогресс из статуса, если возможно
-                if "%" in status:
-                    try:
-                        progress = float(status.split("%")[0].split()[-1])
-                        self.dq.update_status(url, status, progress=progress)
-                    except:
-                        self.dq.update_status(url, status)
-                else:
-                    self.dq.update_status(url, status)
+            # Извлекаем прогресс из статуса, если он не передан явно
+            if progress is None and "%" in status:
+                try:
+                    # Пытаемся извлечь число перед символом %
+                    import re
+                    match = re.search(r'(\d+\.?\d*)%', status)
+                    if match:
+                        progress = float(match.group(1))
+                except:
+                    pass
             
+            # Обновляем статус в очереди
+            self.dq.update_status(url, status, progress=progress)
+            
+            # Обновляем UI в главном потоке
             self.root.after(0, self._refresh_queue_ui)
-            
-        def update_status(url, status, progress=None):
-            """Обновление статуса через очередь"""
-            progress_hook(url, status, progress)
             
         def process_thread():
             downloader = YouTubeDownloader(progress_hook=progress_hook)
@@ -1068,12 +1096,13 @@ class YouVkAppTkinter:
                         try:
                             # Получаем информацию о видео
                             self.dq.update_status(url, "📥 Получение информации...", progress=0)
-                            update_status(url, "📥 Получение информации...", 0)
+                            self.root.after(0, self._refresh_queue_ui)
                             
                             try:
                                 video_info = downloader.get_info(url)
                                 extracted_title = video_info.get("title") or "Видео с YouTube"
                                 self.dq.update_status(url, "📥 Скачивание...", extracted_title=extracted_title)
+                                self.root.after(0, self._refresh_queue_ui)
                             except Exception:
                                 extracted_title = None
                             
@@ -1091,13 +1120,13 @@ class YouVkAppTkinter:
                             
                             # Ставим статус "downloaded" - готово к загрузке
                             self.dq.update_status(url, "downloaded", progress=100)
-                            update_status(url, "✅ Скачано, готово к загрузке", 100)
+                            self.root.after(0, self._refresh_queue_ui)
                             # Сохраняем очередь после каждого скачивания
                             self.dq._save()
                             
                         except Exception as e:
                             self.dq.update_status(url, f"error: {str(e)}")
-                            update_status(url, f"❌ Ошибка: {str(e)}", None)
+                            self.root.after(0, self._refresh_queue_ui)
                     
                     # После скачивания всех файлов ставим на паузу
                     if not self.stop_processing_flag:
@@ -1132,12 +1161,13 @@ class YouVkAppTkinter:
                         try:
                             # Получаем информацию о видео
                             self.dq.update_status(url, "📥 Получение информации...", progress=0)
-                            update_status(url, "📥 Получение информации...", 0)
+                            self.root.after(0, self._refresh_queue_ui)
                             
                             try:
                                 video_info = downloader.get_info(url)
                                 extracted_title = video_info.get("title") or "Видео с YouTube"
                                 self.dq.update_status(url, "📥 Скачивание...", extracted_title=extracted_title)
+                                self.root.after(0, self._refresh_queue_ui)
                             except Exception:
                                 extracted_title = None
                             
@@ -1153,15 +1183,18 @@ class YouVkAppTkinter:
                                 break
 
                             # Загружаем в VK
-                            self.dq.update_status(url, "📤 Загрузка в VK...", progress=0)
-                            update_status(url, "📤 Загрузка в VK...", 0)
+                            self.dq.update_status(url, "📤 Загрузка в VK: 0%", progress=0)
+                            self.root.after(0, self._refresh_queue_ui)
                             
                             print(f"[VK Upload] Начинаем загрузку видео: {final_title}")
                             
                             # Функция для отслеживания прогресса загрузки
                             def upload_progress(bytes_uploaded, total_bytes, progress_percent):
-                                self.dq.update_status(url, f"📤 Загрузка в VK...", progress=progress_percent)
-                                update_status(url, f"📤 Загрузка в VK: {progress_percent:.1f}%", progress_percent)
+                                # Обновляем статус и прогресс через единый механизм
+                                status_text = f"📤 Загрузка в VK: {progress_percent:.1f}%"
+                                self.dq.update_status(url, status_text, progress=progress_percent)
+                                # Обновляем UI в главном потоке
+                                self.root.after(0, self._refresh_queue_ui)
                             
                             result = uploader.upload_video(
                                 filepath=video_info['filepath'],
@@ -1175,7 +1208,8 @@ class YouVkAppTkinter:
 
                             # Сохраняем результат с правильным статусом
                             self.dq.update_status(url, "done", result_link=result["link"], progress=100)
-                            update_status(url, f"✅ Готово: {result['link']}", 100)
+                            # Обновляем UI
+                            self.root.after(0, self._refresh_queue_ui)
                             
                             # Сохраняем owner_id и video_id для возможности переименования
                             item["owner_id"] = result.get("owner_id")
@@ -1185,19 +1219,34 @@ class YouVkAppTkinter:
                             error_msg = str(e)
                             print(f"[VK Upload] Ошибка при загрузке видео: {error_msg}")
                             self.dq.update_status(url, f"error: {error_msg}")
-                            update_status(url, f"❌ Ошибка: {error_msg}", None)
+                            self.root.after(0, self._refresh_queue_ui)
 
                         if self.stop_processing_flag:
                             break
 
-                        if self.dq.delay > 0:
-                            # Пауза с счетчиком обратного отсчета
-                            for remaining in range(self.dq.delay, 0, -1):
-                                if self.stop_processing_flag:
+                        # Пауза только между видео (не после последнего и не после ошибок)
+                        # Проверяем, есть ли следующее видео в списке
+                        current_index = pending.index(item)
+                        is_last = current_index == len(pending) - 1
+                        
+                        # Применяем паузу только если есть следующее видео и загрузка была успешной
+                        if not is_last and self.dq.delay > 0:
+                            # Проверяем, что загрузка была успешной (status == "done")
+                            item_status = None
+                            for queue_item in self.dq.items:
+                                if queue_item["url"] == url:
+                                    item_status = queue_item.get("status")
                                     break
-                                update_status(url, f"⏳ Пауза {self.dq.delay} сек... (осталось {remaining} сек)", None)
-                                import time
-                                time.sleep(1)
+                            
+                            if item_status == "done":
+                                # Пауза с счетчиком обратного отсчета
+                                for remaining in range(self.dq.delay, 0, -1):
+                                    if self.stop_processing_flag:
+                                        break
+                                    self.dq.update_status(url, f"⏳ Пауза {self.dq.delay} сек... (осталось {remaining} сек)")
+                                    self.root.after(0, self._refresh_queue_ui)
+                                    import time
+                                    time.sleep(1)
             finally:
                 # В раздельном режиме уже обновили UI выше в блоке после скачивания
                 if not (separate_mode and self.waiting_for_upload):
@@ -1216,10 +1265,10 @@ class YouVkAppTkinter:
         self._start_auto_refresh()
         
     def _start_auto_refresh(self):
-        """Запускает автообновление UI каждые 500мс"""
+        """Запускает автообновление UI каждые 200мс для более плавного отображения прогресса"""
         if self.is_processing or self.waiting_for_upload:
             self._refresh_queue_ui()
-            self.refresh_timer = self.root.after(500, self._start_auto_refresh)
+            self.refresh_timer = self.root.after(200, self._start_auto_refresh)
         else:
             if self.refresh_timer:
                 self.root.after_cancel(self.refresh_timer)
