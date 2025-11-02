@@ -35,8 +35,24 @@ VK_ACCESS_TOKEN=your_token_here
 ## Запуск
 
 ### Из исходников:
+
+**Важно:** Убедитесь, что виртуальное окружение активировано и все зависимости установлены!
+
+**Windows:**
 ```bash
+venv\Scripts\activate
+python src\gui\app.py
+```
+
+**Linux/Mac:**
+```bash
+source venv/bin/activate
 python src/gui/app.py
+```
+
+Или можно использовать альтернативный способ:
+```bash
+python -m src.gui.app
 ```
 
 ### Из собранного EXE:
