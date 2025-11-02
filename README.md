@@ -62,15 +62,29 @@ python -m src.gui.app
 
 Для сборки исполняемого файла используется PyInstaller:
 
-1. Установите PyInstaller:
+1. Убедитесь, что виртуальное окружение активировано и все зависимости установлены:
 ```bash
+# Windows
+venv\Scripts\activate
+pip install -r requirements.txt
+pip install pyinstaller
+
+# Linux/Mac
+source venv/bin/activate
+pip install -r requirements.txt
 pip install pyinstaller
 ```
 
-2. Соберите EXE:
+2. Соберите EXE из виртуального окружения:
 ```bash
-pyinstaller youvk-pullpush.spec --clean
+# Windows
+venv\Scripts\python.exe -m PyInstaller youvk-pullpush.spec --clean
+
+# Linux/Mac
+venv/bin/python -m PyInstaller youvk-pullpush.spec --clean
 ```
+
+**Важно:** PyInstaller должен запускаться из виртуального окружения, чтобы он мог найти все зависимости (особенно `dotenv`, `vk_api`, `yt_dlp`).
 
 Готовый файл будет в папке `dist/youvk-pullpush.exe`.
 
